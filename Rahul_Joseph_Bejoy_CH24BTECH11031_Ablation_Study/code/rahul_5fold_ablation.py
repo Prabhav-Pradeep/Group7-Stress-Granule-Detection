@@ -145,9 +145,10 @@ class AttentionGate(nn.Module):
 
 
 class UNet(nn.Module):
-    def __init__(self, base=16, conv="std", attention=False):
+    def __init__(self, base=16, conv="std", attention=False, skip=True):
         super().__init__()
-        b = base
+        b, k = base, (2 if skip else 1)      # k = 1: no skip connections (plain encoder-decoder, FCN-like)
+        self.skip = skip
         self.enc = nn.ModuleList([conv_block(1, b, conv), conv_block(b, 2*b, conv),
                                   conv_block(2*b, 4*b, conv), conv_block(4*b, 8*b, conv)])
         self.pool = nn.MaxPool2d(2)
@@ -157,8 +158,8 @@ class UNet(nn.Module):
         self.atts = (nn.ModuleList([AttentionGate(8*b, 8*b, 4*b), AttentionGate(4*b, 4*b, 2*b),
                                     AttentionGate(2*b, 2*b, b), AttentionGate(b, b, max(b // 2, 1))])
                      if attention else None)
-        self.decs = nn.ModuleList([conv_block(16*b, 8*b, conv), conv_block(8*b, 4*b, conv),
-                                   conv_block(4*b, 2*b, conv), conv_block(2*b, b, conv)])
+        self.decs = nn.ModuleList([conv_block(k*8*b, 8*b, conv), conv_block(k*4*b, 4*b, conv),
+                                   conv_block(k*2*b, 2*b, conv), conv_block(k*b, b, conv)])
         self.out = nn.Conv2d(b, 1, 1)
 
     def forward(self, x):
@@ -168,6 +169,9 @@ class UNet(nn.Module):
         x = self.bott(x)
         for i, (up, dec) in enumerate(zip(self.ups, self.decs)):
             x = up(x)
+            if not self.skip:
+                x = dec(x)
+                continue
             s = skips[-(i + 1)]
             if self.atts is not None:
                 s = self.atts[i](x, s)
@@ -179,6 +183,9 @@ MODELS = {
     "UNet":      dict(conv="std", attention=False),
     "DWUNet":    dict(conv="dw",  attention=False),
     "DWAttUNet": dict(conv="dw",  attention=True),
+    # Stage II ablation chain (skip connections, then attention, step by step; all with standard convolutions):
+    "NoSkip":    dict(conv="std", attention=False, skip=False),   # encoder-decoder, no skip connections (FCN-like)
+    "AttUNet":   dict(conv="std", attention=True),                # UNet + attention gates on the skips
 }
 
 
@@ -325,7 +332,7 @@ def main():
     ap.add_argument("--out", default="rahul_5fold_outputs")
     ap.add_argument("--folds", type=int, nargs="+", default=[1, 2, 3, 4, 5])
     ap.add_argument("--seeds", type=int, nargs="+", default=[0, 1, 2])
-    ap.add_argument("--models", nargs="+", default=list(MODELS), choices=list(MODELS))
+    ap.add_argument("--models", nargs="+", default=["UNet", "DWUNet", "DWAttUNet"], choices=list(MODELS))
     ap.add_argument("--base", type=int, default=16, help="base channel width, same for all three models")
     ap.add_argument("--lr", type=float, default=1e-3)
     ap.add_argument("--bce", type=float, default=0.5, help="weight of the BCE term in Dice + w*BCE")

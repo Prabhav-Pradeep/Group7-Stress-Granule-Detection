@@ -226,7 +226,7 @@ def main():
 
     # ---- score all checkpoints
     ck = sorted(glob.glob(os.path.join(a.ckpt, "ckpt", "*.pt")))
-    pat = re.compile(r"^(UNet|DWUNet|DWAttUNet)_fold(\d+)_seed(\d+)\.pt$")
+    pat = re.compile(r"^(\w+)_fold(\d+)_seed(\d+)\.pt$")
     rows, overlay_preds = [], {}
     for n, path in enumerate(ck, 1):
         mt = pat.match(os.path.basename(path))
@@ -296,7 +296,7 @@ def main():
 
     # ---- console summary
     show = ["dice", "iou", "f1", "aji", "ap50", "tp", "fp", "fn"]
-    print("\n=== video-3 (hand labels): mean over tiles, then over 15 checkpoints per model ===")
+    print("\n=== video-3 (hand labels): mean over tiles, then over all checkpoints per model ===")
     per_model = df.groupby(["model", "fold", "seed"])[show].agg(
         {**{k: "mean" for k in ["dice", "iou", "f1", "aji", "ap50"]}, **{k: "sum" for k in ["tp", "fp", "fn"]}})
     print(per_model.groupby("model").mean().round(3).to_string())
