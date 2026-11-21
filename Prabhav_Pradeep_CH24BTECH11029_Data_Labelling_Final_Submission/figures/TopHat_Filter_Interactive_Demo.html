@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Top-hat Simulation</title>
+<style>
+  :root { --bg:#ffffff; --ink:#16202B; --muted:#5A6170; --red:#C8344C; --gold:#E3A21A; --fill:#EEF0F6; --grey:#8C93A4; --green:#177245; --card:#F4F5FA; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#15181d; --ink:#E7EAF0; --muted:#A3AAB8; --fill:#232833; --grey:#7C8496; --green:#4CC38A; --card:#1E222A; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 1000px; margin: 0 auto; padding: 24px 16px 40px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 18px; }
+  .ctrl { display:flex; flex-wrap:wrap; align-items:center; gap:12px 20px; background:var(--card); padding:12px 16px; border-radius:8px; }
+  .ctrl label { font-weight:600; }
+  input[type=range] { width: min(420px, 100%); accent-color: var(--red); }
+  .rv { font-variant-numeric: tabular-nums; color: var(--red); font-weight: 700; min-width: 210px; }
+  .presets button { border:1px solid var(--grey); background:transparent; color:var(--ink); padding:4px 10px; border-radius:6px; cursor:pointer; font:inherit; }
+  .presets button:hover { border-color: var(--red); color: var(--red); }
+  canvas { width:100%; display:block; margin-top:14px; }
+  .h2 { font-weight:600; margin: 14px 0 0; }
+  .keep { display:grid; grid-template-columns: repeat(3, 1fr); gap:10px; margin-top:12px; }
+  .keep div { background:var(--card); border-radius:8px; padding:10px 12px; }
+  .keep b { font-size: 22px; display:block; font-variant-numeric: tabular-nums; }
+  .legend { display:flex; flex-wrap:wrap; gap:6px 18px; color:var(--muted); font-size:13px; margin-top:8px; }
+  .sw { display:inline-block; width:18px; height:3px; vertical-align:middle; margin-right:6px; }
+  .note { color: var(--muted); margin-top: 18px; font-size: 14px; }
+  @media (max-width: 560px) { .keep { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Top-hat: push a flat coin up from below</h1>
+  <p class="sub">Brightness along one line through a cell. Wherever the coin fits, the labeller calls it "background" and subtracts it.</p>
+
+  <div class="ctrl">
+    <label for="r">Coin radius r</label>
+    <input id="r" type="range" min="2" max="45" value="8">
+    <span class="rv" id="rv"></span>
+    <span class="presets"><button data-r="8">r = 8 (V1&ndash;V3)</button> <button data-r="30">r = 30 (V4)</button></span>
+  </div>
+
+  <p class="h2">1. The image, and the "ground" the coin traces</p>
+  <canvas id="c1" height="230"></canvas>
+  <div class="legend">
+    <span><i class="sw" style="background:var(--ink)"></i>image brightness</span>
+    <span><i class="sw" style="background:var(--gold)"></i>ground traced by the coin</span>
+    <span><i class="sw" style="background:var(--gold);height:8px"></i>the coin, pushed up as far as it fits</span>
+  </div>
+
+  <p class="h2">2. What the labeller sees: image &minus; ground</p>
+  <canvas id="c2" height="190"></canvas>
+  <div class="legend">
+    <span><i class="sw" style="background:var(--grey)"></i>true granule (height above the glow)</span>
+    <span><i class="sw" style="background:var(--red)"></i>top-hat result</span>
+  </div>
+
+  <div class="keep" id="keep"></div>
+
+  <p class="note">The coin is the top-hat's disk seen from the side: a disk of radius r lying flat is a bar 2r+1 px wide.
+  A granule narrower than the coin is kept whole; a granule wider than the coin lets the coin rise inside it, so most of it is
+  subtracted as background. Our largest granules are about 44 px across, so the coin must be wider than that: r = 30 gives 61 px.</p>
+</main>
+<script>
+(function () {
+  const N = 420, xs = Array.from({ length: N }, (_, i) => i);
+  const G = [["small granule", 85, 2.2, 70], ["medium granule", 185, 4.5, 65], ["big granule", 315, 10.0, 70]];
+  const glow = xs.map(x => 45 + 22 * Math.sin(2 * Math.PI * x / 520 + 0.4) + 0.04 * x);
+  const gran = xs.map(x => G.reduce((s, [, c, sg, a]) => s + a * Math.exp(-0.5 * ((x - c) / sg) ** 2), 0));
+  const f = xs.map((x, i) => glow[i] + gran[i]);
+
+  function erode(a, r) { return a.map((_, i) => { let m = Infinity; for (let j = Math.max(0, i - r); j <= Math.min(N - 1, i + r); j++) m = Math.min(m, a[j]); return m; }); }
+  function dilate(a, r) { return a.map((_, i) => { let m = -Infinity; for (let j = Math.max(0, i - r); j <= Math.min(N - 1, i + r); j++) m = Math.max(m, a[j]); return m; }); }
+
+  const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+  const c1 = document.getElementById("c1"), c2 = document.getElementById("c2");
+  const slider = document.getElementById("r"), rv = document.getElementById("rv"), keepEl = document.getElementById("keep");
+
+  function setup(cv) {
+    const dpr = window.devicePixelRatio || 1, w = cv.clientWidth, h = cv.getAttribute("height") * 1;
+    cv.width = w * dpr; cv.height = h * dpr; cv.style.height = h + "px";
+    const ctx = cv.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, w, h);
+    return [ctx, w, h];
+  }
+  function line(ctx, ys, X, Y, col, lw, dash) {
+    ctx.beginPath(); ctx.strokeStyle = col; ctx.lineWidth = lw; ctx.setLineDash(dash || []);
+    ys.forEach((y, i) => (i ? ctx.lineTo(X(i), Y(y)) : ctx.moveTo(X(i), Y(y)))); ctx.stroke(); ctx.setLineDash([]);
+  }
+
+  function draw() {
+    const r = +slider.value, ground = dilate(erode(f, r), r), th = f.map((v, i) => v - ground[i]);
+    rv.textContent = "r = " + r + "  →  coin is " + (2 * r + 1) + " px wide";
+
+    let [ctx, w, h] = setup(c1);
+    const X = i => 6 + (i / (N - 1)) * (w - 12), Y1 = v => h - 8 - (v / 160) * (h - 20);
+    ctx.beginPath(); ctx.moveTo(X(0), Y1(0)); f.forEach((v, i) => ctx.lineTo(X(i), Y1(v))); ctx.lineTo(X(N - 1), Y1(0)); ctx.closePath();
+    ctx.fillStyle = css("--fill"); ctx.fill();
+    line(ctx, f, X, Y1, css("--ink"), 1.8);
+    line(ctx, ground, X, Y1, css("--gold"), 2.6);
+    ctx.font = "12px system-ui, sans-serif"; ctx.textAlign = "center";
+    G.forEach(([name, c]) => {
+      let m = Infinity; for (let j = Math.max(0, c - r); j <= Math.min(N - 1, c + r); j++) m = Math.min(m, f[j]);
+      ctx.fillStyle = css("--gold"); ctx.strokeStyle = "#8A5A00"; ctx.lineWidth = 1;
+      ctx.fillRect(X(c - r), Y1(m), X(c + r) - X(c - r), 7); ctx.strokeRect(X(c - r), Y1(m), X(c + r) - X(c - r), 7);
+      ctx.fillStyle = css("--muted"); ctx.fillText(name, X(c), Y1(f[c]) - 6);
+    });
+
+    [ctx, w, h] = setup(c2);
+    const Y2 = v => h - 8 - (v / 85) * (h - 20);
+    ctx.beginPath(); ctx.moveTo(X(0), Y2(0)); th.forEach((v, i) => ctx.lineTo(X(i), Y2(v))); ctx.lineTo(X(N - 1), Y2(0)); ctx.closePath();
+    ctx.fillStyle = "rgba(200,52,76,0.22)"; ctx.fill();
+    line(ctx, gran, X, Y2, css("--grey"), 1.5, [5, 4]);
+    line(ctx, th, X, Y2, css("--red"), 2.2);
+
+    keepEl.innerHTML = G.map(([name, c, , a]) => {
+      const k = Math.round(100 * th[c] / a), col = k >= 80 ? css("--green") : css("--red");
+      return `<div>${name}<b style="color:${col}">${k}%</b>of its height kept</div>`;
+    }).join("");
+  }
+  slider.addEventListener("input", draw);
+  document.querySelectorAll(".presets button").forEach(b => b.addEventListener("click", () => { slider.value = b.dataset.r; draw(); }));
+  window.addEventListener("resize", draw);
+  draw();
+})();
+</script>
+</body>
+</html>
