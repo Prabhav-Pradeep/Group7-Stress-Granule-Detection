@@ -1,0 +1,29 @@
+{
+  "root": "sg_dataset_5fold",
+  "out": "rahul_5fold_outputs",
+  "folds": [
+    1,
+    2,
+    3,
+    4,
+    5
+  ],
+  "seeds": [
+    0,
+    1,
+    2
+  ],
+  "models": [
+    "UNet",
+    "DWUNet",
+    "DWAttUNet"
+  ],
+  "base": 16,
+  "lr": 0.001,
+  "bce": 0.5,
+  "batch": 16,
+  "max_epochs": 30,
+  "patience": 6,
+  "device": "mps",
+  "torch": "2.14.1"
+}
