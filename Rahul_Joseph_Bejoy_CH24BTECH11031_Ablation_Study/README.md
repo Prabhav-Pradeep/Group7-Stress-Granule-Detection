@@ -1,116 +1,67 @@
-# Rahul Joseph Bejoy (CH24BTECH11031): Model ablation
+# Rahul Joseph Bejoy (CH24BTECH11031): Architecture ablation and blob filter (final)
 
-Trained U-Net variants under one identical recipe on Prabhav's 5-fold tile package, then scored every checkpoint on 8 hand-labelled tiles of the held-out video 3 (102 granules).
+Question: what does each part of a U-Net contribute to stress-granule segmentation? Five networks, one identical training recipe, grouped 5-fold cross-validation on videos 1+2 (ground truth = the automatic V4 labels), and a second test on 8 hand-outlined tiles of the held-out video 3 (102 granules, never used in training).
 
-Two rounds of work:
+| Model | What it tests | Parameters |
+| --- | --- | --- |
+| `NoSkip` | encoder-decoder without skip connections (FCN-style baseline) | 1,747,921 |
+| `UNet` | + skip connections | 1,943,761 |
+| `AttUNet` | + attention gates on the skips | 1,965,885 |
+| `DWUNet` | depthwise-separable convolutions (depthwise 3x3 + pointwise 1x1) | 389,435 |
+| `DWAttUNet` | depthwise-separable + attention | 411,559 |
 
-1. **Original labels** (granule area 4 to 400 px, about 22,283 granules): 3 models x 5 folds x 3 seeds = 45 runs.
-2. **Stricter labels** (granule area 60 to 1500 px, about 8,000 granules): 5 models x 5 folds, seed 0 = 25 runs. A 30 to 1500 px version is being trained (results to be added).
-
-## Models
-
-The ablation chain adds one component at a time, all with standard 3x3 convolutions. The depthwise models are a side study on size.
-
-| Model | What it is |
-| --- | --- |
-| `NoSkip` | Encoder-decoder with no skip connections (FCN-like) |
-| `UNet` | NoSkip + skip connections |
-| `AttUNet` | UNet + attention gates on the skip connections |
-| `DWUNet` | UNet with depthwise-separable convolutions (depthwise 3x3 + pointwise 1x1) |
-| `DWAttUNet` | DWUNet + attention gates |
+5 models x 5 folds x 1 seed (seed 0) = 25 checkpoints. This replaces the earlier 3-model, 3-seed version in this folder (`results/runs_extra.csv`, trained on older labels); numbers from that version are superseded.
 
 ## Contents
 
 | Path | What it is |
 | --- | --- |
-| `code/rahul_5fold_ablation.py` | Model definitions, training, metrics and the full resumable experiment. `--models` chooses from all five |
-| `code/score_video3.py` | Scores every saved checkpoint, the pseudo-labeller and any label-free method on the hand-labelled video-3 tiles |
-| `code/score_old_models_on_new_labels.py` | Scores the 45 first-round checkpoints against the new, stricter label package |
-| `code/requirements.txt` | Python packages |
-| `code/early_exploration/` | First version (single split, Colab). Kept for history; final numbers do not come from it |
-| `results/runs_extra.csv` | First round (original 4-400 px labels): one row per run with all metrics, size and speed |
-| `results/60_1500px/` | Second round: `runs.csv`, `runs_extra.csv`, per-run training curves in `history/`, and the hand-label scores (`v3_tiles.csv`, `v3_tiles_extra.csv`, `pseudo_vs_hand.csv`, `extra_methods_vs_hand.csv`) |
-| `results/old_models_on_60_1500_labels/` | The first-round models scored on the new labels (`scores.csv`, `summary.csv`) |
-| `figures/01_violins_5fold.png`, `figures/02_video3_tile_*.png` | First-round violin plot and one video-3 tile with each method's prediction |
-| `figures/overlays_60_1500px/` | Second-round hand labels vs predictions per tile (green = correct, red = extra, yellow = missed) |
-| `presentation/Group7_Final_Presentation_Phase1.pdf` | Final group presentation (ablation: slides 23-32) |
+| `code/rahul_5fold_ablation.py` | Models, loss, training, metrics and the full 5-fold experiment (resumable) |
+| `code/score_video3.py` | Scores every checkpoint, the automatic labeller and label-free methods (DoG, Cellpose) on the hand tiles |
+| `code/score_old_models_on_new_labels.py` | Re-scores checkpoints trained on older label versions on the same hand tiles |
+| `code/plot_loss_curves.py` | Training loss and validation Dice curves (mean over folds) from the history CSVs |
+| `results/final/` | 5-fold and hand-tile results for the final (V4) labels: per-run metrics, per-tile scores, summary tables |
+| `results/earlier_label_versions/` | The same networks trained on label versions V1-V3 (how the labels evolved) |
+| `figures/loss_curves.png` | Training loss and validation Dice, mean over 5 folds |
+| `figures/01_violins_5fold.png`, `02_video3_tile_*.png` | Earlier figures (older labels) |
+| `slides/Group7_Ablation_Statistics.pdf` | Earlier ablation/statistics slides (older labels) |
 
-Statistics (paired tests, violins) and the DoG baseline are in Vedant's folder. Data preparation, pseudo-labels, folds and hand labels are in Prabhav's folder. Data and checkpoints are not in this repository because of their size.
+Statistics and the DoG baseline are in Vedant's folder. Data preparation, labels, folds and hand labels are in Prabhav's folder. Data and checkpoints are not in this repository because of their size.
 
-## Running it
+## Recipe (identical for all five models)
 
-Needs the `sg_dataset_5fold*/` package from Prabhav. Run from the folder that contains it.
+Base width 16 (channels 16/32/64/128/256, 256 px to 16 px), conv-BatchNorm-ReLU blocks, 1x1 convolution + sigmoid output thresholded at 0.5. Loss = (1 - mean per-image soft Dice, smoothing 1) + 0.5 x BCE. Adam, learning rate 1e-3, batch 16, at most 30 epochs, early stopping with patience 6 on validation Dice (best epoch restored). Augmentation: flips, 90-degree rotations, brightness/contrast jitter. Validation = last 15% of frames of each video. MacBook Air M3 (MPS).
+
+Metrics: granules are connected components, matched one-to-one (Hungarian) at IoU >= 0.5; precision, recall, F1, pixel Dice, AJI, AP50. `iou` is the mean IoU of the matched granules (not pixel IoU).
+
+Blob filter: after thresholding, blobs smaller than N px are deleted, with no retraining. N = 20 was chosen on the validation tiles only.
+
+## Key results (mean +/- std over 5 folds; hand tiles: mean over tiles)
+
+| Model | 5-fold F1 (N=0) | 5-fold F1 (N=20) | matched IoU (N=20) | hand F1 (N=0 to 20) |
+| --- | --- | --- | --- | --- |
+| NoSkip | 0.559 +/- 0.044 | 0.587 +/- 0.043 | 0.716 | 0.478 to 0.507 |
+| UNet | 0.662 +/- 0.045 | 0.699 +/- 0.039 | 0.824 | 0.522 to 0.567 |
+| AttUNet | 0.671 +/- 0.050 | 0.703 +/- 0.047 | 0.827 | 0.541 to 0.564 |
+| DWUNet | 0.645 +/- 0.049 | 0.686 +/- 0.045 | 0.833 | 0.509 to 0.549 |
+| DWAttUNet | 0.646 +/- 0.044 | 0.686 +/- 0.048 | 0.820 | 0.510 to 0.550 |
+
+- Skip connections are the only significant factor (NoSkip vs each other model: Holm p < 0.01 on F1; see Vedant's folder). UNet, AttUNet, DWUNet and DWAttUNet are not separable.
+- DWUNet has about 5x fewer parameters. On this hardware it trained 43% longer per fold, so the gain is memory, not speed.
+- The 20 px filter raises every network's F1; for UNet, hand-tile false positives fall from 75.4 to 55.8 at unchanged recall.
+- One seed and 8 hand tiles: treat small differences as indicative only.
+
+## Reproduce
 
 ```
 pip install -r code/requirements.txt
-
-# quick check (a few minutes)
-python rahul_5fold_ablation.py --root sg_dataset_5fold_v2 --out test_run --folds 1 --seeds 0 --max-epochs 1 --models UNet NoSkip AttUNet
-
-# full experiment (resumable; about 12 min per run on a MacBook Air M3)
-python rahul_5fold_ablation.py --root sg_dataset_5fold_v2 --out rahul_5fold_outputs_v2 --seeds 0 --models UNet NoSkip AttUNet DWUNet DWAttUNet
-
-# score the checkpoints on the hand-labelled video-3 tiles
-python score_video3.py --coco roboflow_v3/coco/unzipped/test --images roboflow_v3/images \
-    --pseudo roboflow_v3/pseudo_masks --ckpt rahul_5fold_outputs_v2 --root sg_dataset_5fold_v2 \
-    --out rahul_v3_outputs_v2 --extra DoG=masks_methodA
+cd code
+python rahul_5fold_ablation.py                       # 5 models x 5 folds (several hours on a laptop; resumable)
+python plot_loss_curves.py --hist rahul_5fold_outputs_final/history --out loss_curves.png --wide
+python score_video3.py --coco <roboflow coco test folder> --images <tiles folder> \
+    --pseudo <labeller masks folder> --ckpt rahul_5fold_outputs_final --root sg_dataset_5fold
 ```
 
-## Training recipe (identical for all models)
+Needs the `sg_dataset_5fold/` package and the video-3 tiles from Prabhav's folder.
 
-Base width 16, loss = Dice + 0.5 x BCE, Adam at 1e-3, batch 16, up to 30 epochs with early stopping on validation Dice (patience 6), flips, 90-degree rotations and brightness/contrast jitter, 1x resolution, ReLU + BatchNorm in every block, sigmoid output thresholded at 0.5. Run on a MacBook Air M3 (MPS). Folds are grouped by tile position so near-identical neighbouring frames never sit in train and test together.
-
-## Key numbers
-
-**Round 1: original labels, 4-400 px** (45 runs, test tiles of each fold)
-
-| | UNet | DWUNet | DWAttUNet |
-| --- | --- | --- | --- |
-| Dice | 0.778 | 0.767 | 0.769 |
-| F1 at IoU 0.5 | 0.715 | 0.688 | 0.690 |
-| Parameters | 1.94 M | 0.39 M | 0.41 M |
-
-On 8 hand-labelled tiles these models reach Dice about 0.52 and F1 about 0.32 (recall about 73%, precision about 21%, about 250 to 280 false positives). The pseudo-labeller itself scores F1 0.381 there. So the labels over-detected, and the models copied it.
-
-**Scoring the round-1 models on the stricter 60-1500 labels** (test tiles): UNet F1 0.405 (precision 0.28, recall 0.74), DWUNet 0.395, DWAttUNet 0.397. They find most granules but mark about 3 times too many blobs.
-
-**Round 2: 60-1500 labels** (25 runs, seed 0, mean over 5 folds, test tiles)
-
-| | Dice | Matched IoU | F1 | AJI | AP50 | Parameters |
-| --- | --- | --- | --- | --- | --- | --- |
-| NoSkip | 0.652 | 0.719 | 0.554 | 0.430 | 0.400 | 1.75 M |
-| UNet | 0.701 | 0.808 | 0.625 | 0.513 | 0.521 | 1.94 M |
-| AttUNet | 0.712 | 0.815 | 0.651 | 0.519 | 0.540 | 1.97 M |
-| DWUNet | 0.701 | 0.817 | 0.610 | 0.509 | 0.512 | 0.39 M |
-| DWAttUNet | 0.691 | 0.810 | 0.594 | 0.494 | 0.489 | 0.41 M |
-
-Adding skip connections gives the largest gain; attention gives a small extra gain that has not been tested for significance (one seed, 5 folds).
-
-**Round 2 on the 8 hand-labelled tiles** (mean over the 5 folds' checkpoints; 102 true granules)
-
-| | Dice | F1 | TP | FP | FN |
-| --- | --- | --- | --- | --- | --- |
-| NoSkip | 0.534 | 0.361 | 32.6 | 36.2 | 69.4 |
-| UNet | 0.515 | 0.368 | 38.4 | 40.8 | 63.6 |
-| AttUNet | 0.523 | 0.353 | 39.6 | 54.0 | 62.4 |
-| DWUNet | 0.524 | 0.349 | 38.0 | 47.2 | 64.0 |
-| DWAttUNet | 0.529 | 0.360 | 37.8 | 45.4 | 64.2 |
-
-False positives fell from about 250 to about 36 to 54 per model and precision roughly doubled (about 0.21 to 0.42 to 0.49), but recall fell from about 0.73 to about 0.32 to 0.39. On human labels the five models are within noise of each other (F1 0.349 to 0.368). The 30-1500 version is being trained to see whether keeping smaller granules recovers recall.
-
-## Label versions compared
-
-Prabhav generated three label versions by granule area. The scores on each version's own test tiles are not comparable with each other (different ground truth); the hand-label columns are the common yardstick. UNet shown.
-
-| Label version (area in px) | Granules, whole package | Test F1 on its own labels | Hand-label F1 | Hand-label precision | Hand-label recall |
-| --- | --- | --- | --- | --- | --- |
-| 4-400 (original) | about 22,283 | 0.715 | 0.335 | 0.23 | 0.73 |
-| 60-1500 | about 8,000 | 0.625 | 0.368 | 0.49 | 0.38 |
-| 30-1500 | training in progress | - | - | - | - |
-
-## Limits
-
-- The ground truth for the 5-fold runs is an automatic labeller, not a human.
-- The hand-label test has 8 tiles, 102 granules and one annotator.
-- Round 2 uses one seed (5 folds), so differences between models are indicative until paired tests are run.
-- Touching granules merge, because instances come from connected components.
+Blob-filter code: Prabhav_Pradeep_CH24BTECH11029_Data_Labelling_Final_Submission/code/analysis/blob_filter_eval.py
