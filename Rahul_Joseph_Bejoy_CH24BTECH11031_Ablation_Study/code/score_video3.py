@@ -255,19 +255,25 @@ def main():
     prow, extra_rows, extra_preds = [], [], {}
 
     def score_mask_folder(name, folder, strict):
-        arr, rows = [], []
+        arr, rows, skipped = [], [], []
         for t, g in zip(tiles, gts):
             f = os.path.join(folder, t["name"] + ".png")
             if not os.path.exists(f):
                 if strict:
                     raise SystemExit(f"{f} not found: method '{name}' needs one mask PNG per hand-labelled tile, named like the tile")
-                return None, None
+                # lenient mode: score only the tiles that have a mask (blank panel in the overlay)
+                skipped.append(t["name"])
+                arr.append(np.zeros(g.shape, dtype=bool))
+                continue
             pm = R.read_gray(f) > 0
             if pm.shape != g.shape:
                 raise SystemExit(f"{f}: mask is {pm.shape}, tile is {g.shape}")
             arr.append(pm)
             rows.append(dict(model=name, tile=t["name"], **R.evaluate_tiles(pm[None], g[None])))
-        return np.stack(arr), rows
+        if skipped:
+            print(f"WARNING: '{name}' has no mask for {len(skipped)} of {len(tiles)} hand tiles "
+                  f"({', '.join(skipped)}); scored on the other {len(rows)} tiles only.", flush=True)
+        return (np.stack(arr) if rows else None), rows
 
     if a.pseudo:
         arr, rows = score_mask_folder("Pseudo", a.pseudo, strict=False)
