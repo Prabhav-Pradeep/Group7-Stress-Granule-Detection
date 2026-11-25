@@ -24,7 +24,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-MODELS = ["UNet", "DWUNet", "DWAttUNet"]
+MODELS = ["NoSkip", "UNet", "AttUNet", "DWUNet", "DWAttUNet"]   # ablation chain first, then the depthwise side study
 METRICS = ["dice", "iou", "f1", "aji", "ap50"]
 
 
@@ -74,7 +74,7 @@ def main():
     for k in metrics:
         wide = paired.pivot(index=unit, columns="model", values=k)[models].dropna()
         # Friedman: do the 3 models differ at all? (repeated measures, non-parametric)
-        if len(wide) >= 3 and len(models) >= 3:
+        if len(wide) >= 3 and len(models) >= 3:   # Friedman needs >= 3 models
             chi, p = stats.friedmanchisquare(*[wide[m] for m in models])
             fr.append(dict(metric=k, n_units=len(wide), chi2=chi, p=p))
         # paired t-tests on every pair, Holm-corrected within this metric
@@ -100,8 +100,8 @@ def main():
     pd.DataFrame(fr).round(4).to_csv(f"{a.out}/friedman.csv", index=False)
 
     # ---- 3. violin plots: every individual run/row as a dot ----
-    fig, axes = plt.subplots(1, len(metrics), figsize=(3.2 * len(metrics), 4.2))
-    colors = ["#4C78A8", "#F58518", "#54A24B"]
+    fig, axes = plt.subplots(1, len(metrics), figsize=(4.2 * len(metrics), 4.6))
+    colors = ["#B279A2", "#4C78A8", "#E45756", "#F58518", "#54A24B"]
     rng = np.random.default_rng(0)
     for ax, k in zip(np.atleast_1d(axes), metrics):
         data = [df.loc[df.model == m, k].values for m in models]
@@ -113,7 +113,8 @@ def main():
                        edgecolor="k", linewidth=0.3, zorder=3)
         ax.set_xticks(range(1, len(models) + 1)); ax.set_xticklabels(models, rotation=20)
         ax.set_title(k); ax.grid(axis="y", alpha=0.3)
-    unit_txt = "15 runs per model (5 folds x 3 seeds)" if a.mode == "folds" else "all checkpoints x tiles"
+    n_runs = int(df.groupby("model").size().max())
+    unit_txt = f"{n_runs} runs per model (folds x seeds)" if a.mode == "folds" else "all checkpoints x tiles"
     fig.suptitle(f"{os.path.basename(a.file)}  -  {unit_txt}", y=1.02)
     plt.tight_layout()
     plt.savefig(f"{a.out}/violins.png", dpi=200, bbox_inches="tight")

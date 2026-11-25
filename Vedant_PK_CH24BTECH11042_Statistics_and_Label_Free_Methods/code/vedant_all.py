@@ -19,7 +19,7 @@ import numpy as np
 import pandas as pd
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-MODELS = ["UNet", "DWUNet", "DWAttUNet"]
+MODELS = ["NoSkip", "UNet", "AttUNet", "DWUNet", "DWAttUNet"]
 METRICS = ["dice", "iou", "f1", "aji", "ap50"]
 
 
@@ -128,7 +128,7 @@ def main():
         md += [f"## 2. Video-3 (HAND-labelled ground truth, {n_tiles} tiles)\n",
                "Mean ± std over all (checkpoint, tile) scores:\n", md_table(mean_std_table(v3)), "",
                "Best mean per metric: " + leaders(v3) + "\n",
-               "Granule counts summed over the tiles (mean over 15 checkpoints) and precision / recall:\n",
+               "Granule counts summed over the tiles (mean over checkpoints) and precision / recall:\n",
                md_table(tot), "", sig3 + "\n",
                f"Only {n_tiles} tiles: p-values here have little power, treat as indicative.\n",
                "Pairwise paired t-tests per tile (checkpoints averaged), Holm-corrected:\n",
@@ -170,7 +170,7 @@ def main():
         allm["recall"] = allm.tp / (allm.tp + allm.fn).clip(lower=1)
         allm = allm.round(3).reset_index().rename(columns={"index": "model"})
         md += ["## 4b. Every approach on the hand-labelled tiles (human labels = ground truth)\n",
-               "Trained networks: mean over their 15 checkpoints. Pseudo-labeller and label-free methods: a single deterministic run each "
+               "Trained networks: mean over their checkpoints. Pseudo-labeller and label-free methods: a single deterministic run each "
                "(no seeds/folds), so no p-values for them. Scores are means over the tiles, counts are summed over the tiles.\n",
                md_table(allm), ""]
         allm.to_csv(os.path.join(a.out, "all_methods_video3.csv"), index=False)
